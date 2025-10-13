@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "aira-frontend",
+    "name": "Aira",
     "slug": "aira-frontend",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -21,10 +21,21 @@
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.webnovx.aira"
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      "expo-secure-store",
+      "expo-font"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "1c3a6135-aa3f-497a-a17f-8efe4b299c58"
+      }
+    },
+    "owner": "kazexyt"
   }
 }
