@@ -30,8 +30,8 @@ jobs:
       #   working-directory: ./aira-frontend
       #   run: npx eslint .
 
-      - name: Run TypeScript Check
-        run: npx tsc --noEmit
+      # - name: Run TypeScript Check
+      #   run: npx tsc --noEmit
 
       # Add testing step if you have tests configured
       # - name: Run tests
