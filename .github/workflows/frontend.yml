@@ -2,9 +2,11 @@ name: Aira Frontend CI/CD
 
 on:
   push:
-    branches: [ master ] # Trigger on pushes to the main branch
+    branches: [ master ] # CI triggers on pushes to master
+    tags:
+      - 'v*.*.*'       # CD triggers on pushes of tags like v0.4.0, v1.0.0 etc.
   pull_request:
-    branches: [ master ] # Trigger on pull requests targeting main
+    branches: [ master ] # CI triggers on pull requests targeting master
 
 jobs:
   # ---- Continuous Integration (CI) ----
@@ -18,36 +20,38 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22.15.0' # Use your Node.js version
+          node-version: '22.15.0' # Correct Node.js version
           cache: 'npm'
-          cache-dependency-path: package-lock.json # Adjust path if needed
+          cache-dependency-path: package-lock.json # Correct path at root
 
       - name: Install dependencies
         run: npm install
 
-      # Add linting step if you have ESLint configured
+      # Optional: Uncomment if you set up ESLint
       # - name: Run ESLint
-      #   working-directory: ./aira-frontend
       #   run: npx eslint .
 
+      # Optional: Uncomment if you want to run TypeScript check
       # - name: Run TypeScript Check
       #   run: npx tsc --noEmit
 
-      # Add testing step if you have tests configured
+      # Optional: Uncomment if you set up tests
       # - name: Run tests
-      #   working-directory: ./aira-frontend
       #   run: npm test
 
-  # ---- Continuous Deployment (CD) ----
+  # ---- Continuous Deployment (CD) - Triggered by Tags ----
   cd:
-    name: EAS Build & Submit (Android)
+    name: Build & Release APK
     runs-on: ubuntu-latest
-    # Only run CD if CI passes and it's a push to the main branch
-    needs: ci
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    needs: ci # Run only if CI passes
+    # Run only if the trigger was a push AND it was a tag starting with 'v'
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
 
     env:
+      # Make Expo token available to all steps
       EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+      # Get version from tag (e.g., v0.4.0) - used for naming artifacts
+      APP_VERSION: ${{ github.ref_name }}
 
     steps:
       - name: Checkout code
@@ -56,9 +60,9 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22.15.0'
           cache: 'npm'
-          cache-dependency-path: ./package-lock.json
+          cache-dependency-path: package-lock.json
 
       - name: Install dependencies
         run: npm install
@@ -66,13 +70,89 @@ jobs:
       - name: Install Latest EAS CLI
         run: npm install -g eas-cli@latest
 
-      - name: EAS Build
-        # Assumes you have a 'production' build profile in eas.json
-        run: eas build --platform android --profile production --non-interactive --no-wait
+      # --- Start EAS Build ---
+      - name: EAS Build (Start Only)
+        id: build # Give step an ID to reference its output
+        run: |
+          # Use jq to parse JSON output and get the build URL
+          BUILD_URL=$(eas build --platform android --profile production --non-interactive --json | jq -r '.[] | .buildUrl')
+          echo "Build URL: $BUILD_URL"
+          # Save the URL for the next step
+          echo "build_url=$BUILD_URL" >> $GITHUB_OUTPUT
 
-      # Optional: Submit to Play Store after build completes (requires setup)
-      # You might need a separate workflow triggered by the EAS build webhook,
-      # or poll the build status before submitting.
-      # - name: EAS Submit (if build successful)
-      #   working-directory: ./aira-frontend
-      #   run: eas submit --platform android --latest --wait
+      # --- Wait for EAS Build ---
+      - name: Wait for EAS Build to Complete
+        # Use the URL captured in the previous step
+        run: eas build:run --wait --url ${{ steps.build.outputs.build_url }}
+
+      # --- Download EAS Build Artifact ---
+      - name: Download Build Artifact (.aab)
+        id: download # Give step an ID
+        run: |
+          echo "Fetching details for build URL: ${{ steps.build.outputs.build_url }}"
+          # Get artifact URL from finished build matching the build URL
+          ARTIFACT_URL=$(eas build:list --platform android --status finished --limit 1 --json | jq -r --arg BUILD_URL "${{ steps.build.outputs.build_url }}" '.[] | select(.buildUrl == $BUILD_URL) | .artifacts.buildUrl')
+          if [ -z "$ARTIFACT_URL" ] || [ "$ARTIFACT_URL" == "null" ]; then
+            echo "Error: Could not find artifact URL for build ${{ steps.build.outputs.build_url }}"
+            eas build:list --platform android --status finished --limit 5 --json # Print recent builds for debugging
+            exit 1
+          fi
+          echo "Downloading artifact from: $ARTIFACT_URL"
+          # Download the AAB file
+          curl -o aira-${{ env.APP_VERSION }}.aab "$ARTIFACT_URL"
+          echo "Downloaded AAB."
+          # Save the path for the next steps
+          echo "artifact_path=aira-${{ env.APP_VERSION }}.aab" >> $GITHUB_OUTPUT
+        env:
+          # Pass build URL via env because GITHUB_OUTPUT might not be immediately available in complex jq queries
+          BUILD_URL_ENV: ${{ steps.build.outputs.build_url }}
+
+      # --- Set up Java for bundletool ---
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17' # Bundletool needs Java 11+
+
+      # --- Download bundletool ---
+      - name: Download bundletool
+        id: bundletool
+        run: |
+          # Use a known recent version, or check GitHub releases for the latest
+          VERSION="1.15.6"
+          echo "Downloading bundletool version $VERSION..."
+          curl -Lo bundletool.jar "https://github.com/google/bundletool/releases/download/$VERSION/bundletool-all-$VERSION.jar"
+          echo "Downloaded bundletool.jar"
+          # Save the path for the next step
+          echo "jar_path=bundletool.jar" >> $GITHUB_OUTPUT
+
+      # --- Convert AAB to Universal APK ---
+      - name: Convert AAB to Universal APK
+        id: conversion
+        run: |
+          echo "Converting ${{ steps.download.outputs.artifact_path }} to APKs..."
+          java -jar ${{ steps.bundletool.outputs.jar_path }} build-apks --bundle=${{ steps.download.outputs.artifact_path }} --output=aira-${{ env.APP_VERSION }}.apks --mode=universal
+          echo "Extracting universal APK..."
+          unzip aira-${{ env.APP_VERSION }}.apks -d apks/
+          ls apks/ # List contents for debugging
+          # Save path and desired final name for the upload step
+          echo "apk_path=apks/universal.apk" >> $GITHUB_OUTPUT
+          echo "apk_name=aira-${{ env.APP_VERSION }}-universal.apk" >> $GITHUB_OUTPUT
+
+      # --- Create GitHub Release and Upload APK ---
+      - name: Create Release and Upload APK
+        uses: softprops/action-gh-release@v2
+        with:
+          # GITHUB_TOKEN is automatically provided by Actions
+          token: ${{ secrets.GITHUB_TOKEN }}
+          tag_name: ${{ github.ref_name }} # Use the tag that triggered the workflow
+          name: Release ${{ github.ref_name }} # e.g., Release v0.4.0
+          body: | # Optional: Add release notes here
+            Automated release for version ${{ github.ref_name }}
+
+            **Aira Android App**
+            Install this APK directly on your device.
+          draft: false # Set to true to create a draft release instead
+          prerelease: false
+          files: | # Define file(s) to upload
+            ${{ steps.conversion.outputs.apk_path }} => ${{ steps.conversion.outputs.apk_name }}
