@@ -74,12 +74,7 @@ jobs:
       - name: EAS Build (Start Only)
         id: build # Give step an ID to reference its output
         run: |
-          # Start the build (don't capture JSON here)
-          eas build --platform android --profile production --non-interactive --no-wait
-          echo "Build started. Fetching latest build details..."
-          # Wait a bit for EAS list to potentially update
-          sleep 10
-          # Explicitly check authentication status
+          # Explicitly check authentication status first
           echo "Checking EAS authentication..."
           eas whoami
           if [ $? -ne 0 ]; then
@@ -87,37 +82,63 @@ jobs:
             exit 1
           fi
           echo "EAS authentication successful."
-
-          # --- Retry loop for build:list ---
-          LATEST_BUILD_JSON=""
-          BUILD_URL=""
-          for i in 1 2 3; do
-            echo "Attempt $i to fetch latest build list..."
-            LATEST_BUILD_JSON=$(eas build:list --platform android --limit 1 --json)
-            if [ $? -eq 0 ]; then
-              echo "--- Latest Build JSON Output (Attempt $i) ---"
-              echo "$LATEST_BUILD_JSON"
-              echo "--- End JSON Output ---"
-              BUILD_URL=$(echo "$LATEST_BUILD_JSON" | jq -r '.[0].buildUrl // empty')
-              if [ -n "$BUILD_URL" ] && [ "$BUILD_URL" != "null" ]; then
-                echo "Successfully fetched and parsed build list."
-                break # Exit loop on success
+          
+          # Start the build and capture the full output
+          echo "Starting EAS build..."
+          BUILD_OUTPUT=$(eas build --platform android --profile production --non-interactive --no-wait 2>&1)
+          BUILD_EXIT=$?
+          
+          echo "--- Build Command Output ---"
+          echo "$BUILD_OUTPUT"
+          echo "--- End Build Output ---"
+          
+          if [ $BUILD_EXIT -ne 0 ]; then
+            echo "Error: EAS build command failed with exit code $BUILD_EXIT"
+            exit 1
+          fi
+          
+          # Extract build URL from the output
+          # EAS typically outputs something like "Build: https://expo.dev/accounts/..."
+          BUILD_URL=$(echo "$BUILD_OUTPUT" | grep -oP 'https://expo\.dev/accounts/[^/]+/projects/[^/]+/builds/[a-f0-9-]+' | head -1)
+          
+          if [ -z "$BUILD_URL" ]; then
+            echo "Warning: Could not extract build URL from output. Attempting to fetch from build:list..."
+            sleep 20  # Wait longer before trying to list builds
+            
+            # --- Retry loop for build:list ---
+            LATEST_BUILD_JSON=""
+            for i in 1 2 3 4 5; do
+              echo "Attempt $i to fetch latest build list..."
+              LATEST_BUILD_JSON=$(eas build:list --platform android --limit 1 --json 2>&1)
+              EXIT_CODE=$?
+              if [ $EXIT_CODE -eq 0 ]; then
+                echo "--- Latest Build JSON Output (Attempt $i) ---"
+                echo "$LATEST_BUILD_JSON"
+                echo "--- End JSON Output ---"
+                BUILD_URL=$(echo "$LATEST_BUILD_JSON" | jq -r '.[0].buildUrl // empty' 2>/dev/null)
+                if [ -n "$BUILD_URL" ] && [ "$BUILD_URL" != "null" ]; then
+                  echo "Successfully fetched and parsed build list."
+                  break # Exit loop on success
+                else
+                  echo "Warning: Fetched build list but couldn't parse buildUrl (JSON might be empty or wrong structure)."
+                fi
               else
-                echo "Warning: Fetched build list but couldn't parse buildUrl (JSON might be empty or wrong structure)."
+                echo "Warning: 'eas build:list' command failed on attempt $i with exit code $EXIT_CODE"
+                # Print the error output for debugging
+                echo "$LATEST_BUILD_JSON"
               fi
-            else
-              echo "Warning: 'eas build:list' command failed on attempt $i."
-            fi
-            if [ $i -lt 3 ]; then
-              echo "Waiting 15 seconds before retry..."
-              sleep 15
-            fi
-          done
-          # --- End Retry loop ---
+              if [ $i -lt 5 ]; then
+                WAIT_TIME=$((i * 10))
+                echo "Waiting $WAIT_TIME seconds before retry..."
+                sleep $WAIT_TIME
+              fi
+            done
+            # --- End Retry loop ---
+          fi
 
           echo "Extracted Build URL: $BUILD_URL"
           if [ -z "$BUILD_URL" ] || [ "$BUILD_URL" == "null" ]; then
-            echo "Error: Could not extract build URL using eas build:list after multiple attempts."
+            echo "Error: Could not extract build URL after all attempts."
             exit 1
           fi
           # Save the URL for the next step
@@ -138,18 +159,31 @@ jobs:
           ARTIFACT_URL=""
           for i in 1 2 3 4 5; do
             echo "Attempt $i to get artifact URL..."
-            BUILD_DETAILS_JSON=$(eas build:list --platform android --status finished --limit 1 --json)
-            echo "--- Build List JSON (Attempt $i) ---"
-            echo "$BUILD_DETAILS_JSON"
-            echo "--- End JSON Output ---"
-            # Extract artifact URL specifically for the build URL we are waiting for
-            ARTIFACT_URL=$(echo "$BUILD_DETAILS_JSON" | jq -r --arg BUILD_URL "${{ steps.build.outputs.build_url }}" '.[] | select(.buildUrl == $BUILD_URL) | .artifacts.buildUrl // empty')
+            BUILD_DETAILS_JSON=$(eas build:list --platform android --status finished --limit 10 --json 2>&1)
+            EXIT_CODE=$?
+            
+            if [ $EXIT_CODE -eq 0 ]; then
+              echo "--- Build List JSON (Attempt $i) ---"
+              echo "$BUILD_DETAILS_JSON"
+              echo "--- End JSON Output ---"
+              # Extract artifact URL specifically for the build URL we are waiting for
+              ARTIFACT_URL=$(echo "$BUILD_DETAILS_JSON" | jq -r --arg BUILD_URL "${{ steps.build.outputs.build_url }}" '.[] | select(.buildUrl == $BUILD_URL) | .artifacts.buildUrl // empty' 2>/dev/null)
+            else
+              echo "Warning: 'eas build:list' command failed with exit code $EXIT_CODE"
+              echo "Error output: $BUILD_DETAILS_JSON"
+            fi
+            
             if [ -n "$ARTIFACT_URL" ] && [ "$ARTIFACT_URL" != "null" ]; then
               echo "Found artifact URL."
               break
             fi
-            echo "Artifact URL not found yet, waiting 15 seconds..."
-            sleep 15
+            
+            echo "Artifact URL not found yet, waiting..."
+            if [ $i -lt 5 ]; then
+              WAIT_TIME=$((i * 20))
+              echo "Waiting $WAIT_TIME seconds before retry..."
+              sleep $WAIT_TIME
+            fi
           done
 
           if [ -z "$ARTIFACT_URL" ] || [ "$ARTIFACT_URL" == "null" ]; then
@@ -159,8 +193,12 @@ jobs:
 
           echo "Downloading artifact from: $ARTIFACT_URL"
           # Download the AAB file, using the version from the tag in the filename
-          curl -f -Lo aira-${{ env.APP_VERSION }}.aab "$ARTIFACT_URL" # Added -f to fail on server errors
-          echo "Downloaded AAB."
+          curl -f -L -o aira-${{ env.APP_VERSION }}.aab "$ARTIFACT_URL"
+          if [ $? -ne 0 ]; then
+            echo "Error: Failed to download artifact"
+            exit 1
+          fi
+          echo "Downloaded AAB successfully."
           # Save the path for the next steps
           echo "artifact_path=aira-${{ env.APP_VERSION }}.aab" >> $GITHUB_OUTPUT
 
