@@ -6,16 +6,23 @@ import {
   Pressable,
   Animated,
   useWindowDimensions,
-  Image,
   useColorScheme,
+  ScrollView,
 } from "react-native";
-import { FAB, ActivityIndicator, Text, useTheme } from "react-native-paper";
+import {
+  FAB,
+  ActivityIndicator,
+  Text,
+  useTheme,
+  Surface,
+} from "react-native-paper";
 import { useFocusEffect } from "@react-navigation/native";
 import * as Animatable from "react-native-animatable";
 import apiClient from "../api/client";
 import dayjs from "dayjs";
-// --- 1. REMOVE THE SHARED ELEMENT IMPORT ---
-// import { SharedElement } from "react-navigation-shared-element";
+import relativeTime from "dayjs/plugin/relativeTime";
+
+dayjs.extend(relativeTime);
 
 interface JournalEntry {
   _id: string;
@@ -56,48 +63,63 @@ const AnimatedJournalCard = ({
     }).start();
   }, [fadeAnim, slideAnim, index]);
 
+  const contentPreview = item.content.substring(0, 60);
+
   return (
     <Animated.View
       style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}
     >
-      {/* --- 2. REMOVE THE SHARED ELEMENT WRAPPER --- */}
-      {/* <SharedElement id={`item.${item._id}.card`}> */}
       <Pressable
-        // --- 3. REVERT NAVIGATION TO PASS ONLY entryId ---
         onPress={() =>
-          navigation.navigate("JournalView", { entryId: item._id }) // Changed back
+          navigation.navigate("JournalView", { entryId: item._id })
         }
         android_ripple={{ color: theme.colors.primaryContainer }}
-        style={[
+        style={({ pressed }) => [
           {
             width: cardSize,
             height: cardSize,
             backgroundColor: theme.colors.surface,
           },
           styles.card,
+          pressed && styles.cardPressed,
         ]}
       >
-        <View>
+        <View style={styles.cardTop}>
           <Text
             variant="titleMedium"
             numberOfLines={2}
-            style={styles.cardTitle}
+            style={[styles.cardTitle, { color: theme.colors.onBackground }]}
           >
             {item.title}
           </Text>
+        </View>
+
+        <Text
+          variant="bodySmall"
+          numberOfLines={3}
+          style={[styles.cardContent, { color: theme.colors.outline }]}
+        >
+          {contentPreview}
+          {item.content.length > 60 ? "..." : ""}
+        </Text>
+
+        <View style={styles.cardFooter}>
           <Text
             variant="bodySmall"
-            numberOfLines={3}
-            style={[styles.cardContent, { color: theme.colors.outline }]}
+            style={{
+              color: theme.colors.primary,
+              fontWeight: "600",
+              backgroundColor: theme.colors.primary + "15",
+              paddingHorizontal: 10,
+              paddingVertical: 4,
+              borderRadius: 8,
+              overflow: "hidden",
+            }}
           >
-            {item.content}
+            {dayjs(item.createdAt).fromNow()}
           </Text>
         </View>
-        <Text variant="bodySmall" style={{ color: theme.colors.outline }}>
-          {dayjs(item.createdAt).format("MMM D, YYYY")}
-        </Text>
       </Pressable>
-      {/* </SharedElement> */}
     </Animated.View>
   );
 };
@@ -127,19 +149,14 @@ const JournalListScreen = ({ navigation }: any) => {
   );
 
   const EmptyListComponent = () => {
-    const illustrationSource =
-      colorScheme === "dark"
-        ? require("../../assets/journal-illustration-dark.png")
-        : require("../../assets/journal-illustration.png");
-
     return (
       <View style={styles.emptyContainer}>
-        <Image source={illustrationSource} style={styles.emptyImage} />
+        <Text style={styles.emptyEmoji}>📔</Text>
         <Text style={[styles.emptyText, { color: theme.colors.onSurface }]}>
           Your Journal Awaits
         </Text>
         <Text style={[styles.emptySubtitle, { color: theme.colors.outline }]}>
-          Press the '+' button to capture your thoughts and feelings.
+          Start capturing your thoughts and feelings by pressing the '+' button
         </Text>
       </View>
     );
@@ -153,6 +170,24 @@ const JournalListScreen = ({ navigation }: any) => {
     <View
       style={[styles.container, { backgroundColor: theme.colors.background }]}
     >
+      <Animatable.View
+        animation="fadeInDown"
+        duration={600}
+        useNativeDriver={true}
+      >
+        <View style={styles.header}>
+          <Text style={styles.headerEmoji}>📝</Text>
+          <Text style={[styles.headerTitle, { color: theme.colors.onSurface }]}>
+            Your Journal
+          </Text>
+          <Text
+            style={[styles.headerSubtitle, { color: theme.colors.outline }]}
+          >
+            Capture your thoughts and feelings
+          </Text>
+        </View>
+      </Animatable.View>
+
       <FlatList
         data={entries}
         keyExtractor={(item) => item._id}
@@ -167,6 +202,7 @@ const JournalListScreen = ({ navigation }: any) => {
         )}
         contentContainerStyle={styles.listContent}
         ListEmptyComponent={EmptyListComponent}
+        scrollEnabled={true}
       />
 
       <Animatable.View
@@ -190,21 +226,51 @@ const JournalListScreen = ({ navigation }: any) => {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   loader: { flex: 1, justifyContent: "center", alignItems: "center" },
-  listContent: { padding: 8, flexGrow: 1 },
+  header: {
+    paddingVertical: 28,
+    paddingHorizontal: 20,
+    alignItems: "center",
+  },
+  headerEmoji: {
+    fontSize: 40,
+    marginBottom: 12,
+  },
+  headerTitle: {
+    fontSize: 28,
+    fontWeight: "700",
+    marginBottom: 6,
+    textAlign: "center",
+  },
+  headerSubtitle: {
+    fontSize: 16,
+    opacity: 0.6,
+    textAlign: "center",
+  },
+  listContent: { padding: 12, paddingBottom: 32, flexGrow: 1 },
   card: {
     margin: 6,
     padding: 16,
     justifyContent: "space-between",
     alignItems: "flex-start",
-    borderRadius: 28,
-    elevation: 2,
+    borderRadius: 16,
+    borderWidth: 1,
+    elevation: 0,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.08,
-    shadowRadius: 4,
+    shadowRadius: 2,
   },
-  cardTitle: { fontFamily: "Inter_500Medium" },
-  cardContent: { marginTop: 8 },
+  cardPressed: {
+    opacity: 0.8,
+  },
+  cardTop: {
+    marginBottom: 12,
+  },
+  cardTitle: { fontWeight: "700" },
+  cardContent: { lineHeight: 18, marginBottom: 12 },
+  cardFooter: {
+    marginTop: "auto",
+  },
   fabContainer: {
     position: "absolute",
     margin: 16,
@@ -215,23 +281,23 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    padding: 32,
+    paddingHorizontal: 32,
   },
-  emptyImage: {
-    width: 250,
-    height: 250,
-    marginBottom: 24,
+  emptyEmoji: {
+    fontSize: 64,
+    marginBottom: 20,
   },
   emptyText: {
-    fontSize: 22,
-    fontFamily: "Inter_700Bold",
+    fontSize: 20,
+    fontWeight: "700",
     textAlign: "center",
-    marginBottom: 8,
+    marginBottom: 12,
   },
   emptySubtitle: {
-    fontSize: 16,
+    fontSize: 14,
     textAlign: "center",
-    opacity: 0.7,
+    opacity: 0.6,
+    lineHeight: 20,
   },
 });
 

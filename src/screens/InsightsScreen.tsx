@@ -1,9 +1,10 @@
 import React, { useState, useCallback } from 'react';
-import { View, StyleSheet, useColorScheme, Image } from 'react-native';
-import { useTheme, Text, ActivityIndicator } from 'react-native-paper';
+import { View, StyleSheet, useColorScheme, Image, ScrollView, Animated } from 'react-native';
+import { useTheme, Text, ActivityIndicator, Surface, ProgressBar } from 'react-native-paper';
 import { useFocusEffect } from '@react-navigation/native';
 import { BarChart } from 'react-native-gifted-charts';
 import apiClient from '../api/client';
+import * as Animatable from 'react-native-animatable';
 
 // Define the structure of a single mood entry from the API
 interface MoodEntry {
@@ -24,6 +25,7 @@ const InsightsScreen = () => {
   const colorScheme = useColorScheme();
   const [chartData, setChartData] = useState<ChartDataItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [fadeAnim] = useState(new Animated.Value(0));
 
   // A color map for the different moods
   const moodColors = {
@@ -33,6 +35,14 @@ const InsightsScreen = () => {
     anxious: '#9C27B0', // Purple
     angry: '#F44336', // Red
     default: theme.colors.primary,
+  };
+
+  const moodEmojis: Record<string, string> = {
+    happy: '😊',
+    calm: '😌',
+    sad: '😢',
+    anxious: '😰',
+    angry: '😠',
   };
 
   const fetchAndProcessMoods = useCallback(async () => {
@@ -68,24 +78,35 @@ const InsightsScreen = () => {
   useFocusEffect(
     useCallback(() => {
       fetchAndProcessMoods();
-    }, [fetchAndProcessMoods])
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 600,
+        useNativeDriver: true,
+      }).start();
+    }, [fetchAndProcessMoods, fadeAnim])
   );
 
   const EmptyStateComponent = () => (
-    <View style={styles.emptyContainer}>
+    <Animatable.View
+      animation="fadeInUp"
+      duration={500}
+      style={styles.emptyContainer}
+    >
       <Image
         source={
           colorScheme === 'dark'
-            ? require('../../assets/your-illustration-dark.png') // Use dark illustration for dark mode
-            : require('../../assets/your-illustration.png') // Use light illustration for light mode
+            ? require('../../assets/your-illustration-dark.png')
+            : require('../../assets/your-illustration.png')
         }
         style={styles.emptyImage}
       />
-      <Text variant="headlineSmall" style={styles.emptyTitle}>No Insights Yet</Text>
-      <Text variant="bodyLarge" style={styles.emptySubtitle}>
+      <Text variant="headlineSmall" style={[styles.emptyTitle, { color: theme.colors.primary }]}>
+        📊 No Insights Yet
+      </Text>
+      <Text variant="bodyLarge" style={[styles.emptySubtitle, { color: theme.colors.outline }]}>
         Chat with Aira to log your moods and see your emotional trends over time.
       </Text>
-    </View>
+    </Animatable.View>
   );
   
   if (loading) {
@@ -97,31 +118,124 @@ const InsightsScreen = () => {
   }
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+    <ScrollView
+      style={[styles.container, { backgroundColor: theme.colors.background }]}
+      showsVerticalScrollIndicator={false}
+      contentContainerStyle={styles.scrollContent}
+    >
       {chartData.length === 0 ? (
         <EmptyStateComponent />
       ) : (
-        <View style={styles.chartContainer}>
-            <Text variant="titleLarge" style={styles.title}>Your Mood Summary</Text>
-            <BarChart
-                data={chartData}
-                barWidth={40}
-                spacing={25}
-                roundedTop
-                roundedBottom
-                hideRules
-                xAxisThickness={1}
-                yAxisThickness={1}
-                xAxisColor={theme.colors.outline}
-                yAxisColor={theme.colors.outline}
-                yAxisTextStyle={{ color: theme.colors.onSurface }}
-                xAxisLabelTextStyle={{ color: theme.colors.onSurface, fontFamily: 'Inter_400Regular' }}
-                noOfSections={5}
-                maxValue={Math.max(...chartData.map(d => d.value), 5)} // Ensure Y-axis has a reasonable max
-            />
-        </View>
+        <Animated.View style={[{ opacity: fadeAnim }]}>
+          {/* Header */}
+          <Animatable.View animation="fadeInDown" duration={500}>
+            <View style={styles.header}>
+              <Text variant="displaySmall" style={[styles.mainTitle, { color: theme.colors.onBackground }]}>
+                Your Insights
+              </Text>
+              <Text variant="bodyMedium" style={[styles.subtitle, { color: theme.colors.outline }]}>
+                Track your emotional wellness
+              </Text>
+            </View>
+          </Animatable.View>
+
+          {/* Stats Cards */}
+          <Animatable.View animation="fadeInUp" duration={600} delay={100}>
+            <View style={styles.statsRow}>
+              <Surface style={[styles.statCard, { backgroundColor: theme.colors.surface }]} elevation={0}>
+                <Text style={[styles.statLabel, { color: theme.colors.outline }]}>Total Moods</Text>
+                <Text style={[styles.statValue, { color: theme.colors.primary }]}>
+                  {chartData.reduce((sum, item) => sum + item.value, 0)}
+                </Text>
+              </Surface>
+              <Surface style={[styles.statCard, { backgroundColor: theme.colors.surface }]} elevation={0}>
+                <Text style={[styles.statLabel, { color: theme.colors.outline }]}>Mood Types</Text>
+                <Text style={[styles.statValue, { color: theme.colors.primary }]}>
+                  {chartData.length}
+                </Text>
+              </Surface>
+            </View>
+          </Animatable.View>
+
+          {/* Chart Card */}
+          <Animatable.View animation="fadeInUp" duration={600} delay={200}>
+            <Surface
+              style={[styles.chartCard, { backgroundColor: theme.colors.surface }]}
+              elevation={0}
+            >
+              <Text variant="titleLarge" style={[styles.chartTitle, { color: theme.colors.onSurface }]}>
+                📈 Mood Distribution
+              </Text>
+              <View style={styles.chartWrapper}>
+                <BarChart
+                  data={chartData}
+                  barWidth={32}
+                  spacing={20}
+                  roundedTop
+                  roundedBottom
+                  hideRules
+                  xAxisThickness={0}
+                  yAxisThickness={0}
+                  xAxisColor={theme.colors.outline}
+                  yAxisColor={theme.colors.outline}
+                  yAxisTextStyle={{ color: theme.colors.onSurface, fontSize: 12 }}
+                  xAxisLabelTextStyle={{ color: theme.colors.onSurface, fontFamily: 'Inter_400Regular', fontSize: 11 }}
+                  noOfSections={5}
+                  maxValue={Math.max(...chartData.map(d => d.value), 5)}
+                />
+              </View>
+            </Surface>
+          </Animatable.View>
+
+          {/* Mood Details */}
+          <Animatable.View animation="fadeInUp" duration={600} delay={300}>
+            <Surface
+              style={[styles.detailsCard, { backgroundColor: theme.colors.surface }]}
+              elevation={0}
+            >
+              <Text variant="titleMedium" style={[styles.detailsTitle, { color: theme.colors.onSurface }]}>
+                💡 Mood Breakdown
+              </Text>
+              {chartData.map((item, index) => (
+                <Animatable.View
+                  key={item.label}
+                  animation="slideInLeft"
+                  delay={400 + index * 50}
+                  useNativeDriver={true}
+                  style={styles.moodDetailItem}
+                >
+                  <View style={styles.moodDetailRow}>
+                    <View style={styles.moodDetailLeft}>
+                      <Text style={styles.moodEmoji}>{moodEmojis[item.label.toLowerCase()] || '🙂'}</Text>
+                      <Text style={[styles.moodName, { color: theme.colors.onSurface }]}>
+                        {item.label}
+                      </Text>
+                    </View>
+                    <View style={styles.moodDetailRight}>
+                      <Text style={[styles.moodCount, { color: item.frontColor }]}>
+                        {item.value}
+                      </Text>
+                    </View>
+                  </View>
+                  <ProgressBar
+                    progress={item.value / Math.max(...chartData.map(d => d.value))}
+                    color={item.frontColor}
+                    style={[styles.progressBar, { backgroundColor: item.frontColor + '20' }]}
+                  />
+                </Animatable.View>
+              ))}
+            </Surface>
+          </Animatable.View>
+
+          {/* Footer */}
+          <View style={styles.footer}>
+            <Text variant="bodySmall" style={[styles.footerText, { color: theme.colors.outline }]}>
+              💬 Keep chatting with Aira to build your mood history
+            </Text>
+          </View>
+        </Animated.View>
       )}
-    </View>
+    </ScrollView>
   );
 };
 
@@ -133,18 +247,111 @@ const styles = StyleSheet.create({
   },
   container: {
     flex: 1,
-    padding: 16,
   },
-  chartContainer: {
-    flex: 1,
-    justifyContent: 'center',
+  scrollContent: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 32,
+  },
+  header: {
+    marginBottom: 28,
     alignItems: 'center',
-    paddingVertical: 40,
   },
-  title: {
-    fontFamily: 'Inter_700Bold',
-    marginBottom: 40,
+  mainTitle: {
+    fontWeight: '700',
+    marginBottom: 8,
+  },
+  subtitle: {
     textAlign: 'center',
+  },
+  statsRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 24,
+  },
+  statCard: {
+    flex: 1,
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 0, 0, 0.05)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  statLabel: {
+    fontSize: 12,
+    fontWeight: '500',
+    marginBottom: 6,
+  },
+  statValue: {
+    fontSize: 28,
+    fontWeight: '700',
+  },
+  chartCard: {
+    padding: 20,
+    borderRadius: 20,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 0, 0, 0.05)',
+  },
+  chartTitle: {
+    fontWeight: '700',
+    marginBottom: 16,
+  },
+  chartWrapper: {
+    paddingVertical: 16,
+    alignItems: 'center',
+  },
+  detailsCard: {
+    padding: 20,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 0, 0, 0.05)',
+    marginBottom: 24,
+  },
+  detailsTitle: {
+    fontWeight: '700',
+    marginBottom: 16,
+  },
+  moodDetailItem: {
+    marginBottom: 16,
+  },
+  moodDetailRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  moodDetailLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  moodDetailRight: {
+    alignItems: 'flex-end',
+  },
+  moodEmoji: {
+    fontSize: 28,
+  },
+  moodName: {
+    fontWeight: '600',
+    fontSize: 14,
+  },
+  moodCount: {
+    fontWeight: '700',
+    fontSize: 16,
+  },
+  progressBar: {
+    height: 6,
+    borderRadius: 3,
+  },
+  footer: {
+    alignItems: 'center',
+    paddingVertical: 16,
+  },
+  footerText: {
+    textAlign: 'center',
+    fontWeight: '500',
   },
   emptyContainer: {
     flex: 1,
@@ -158,7 +365,7 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   emptyTitle: {
-    fontFamily: 'Inter_700Bold',
+    fontWeight: '700',
     textAlign: 'center',
     marginBottom: 8,
   },

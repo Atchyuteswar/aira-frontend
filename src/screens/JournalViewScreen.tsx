@@ -1,8 +1,9 @@
-import React, { useState, useCallback } from 'react';
-import { View, StyleSheet, ScrollView, SafeAreaView, StatusBar, ActivityIndicator } from 'react-native';
-import { Text, useTheme, FAB, IconButton } from 'react-native-paper';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
+import { View, StyleSheet, ScrollView, SafeAreaView, StatusBar, ActivityIndicator, Animated } from 'react-native';
+import { Text, useTheme, FAB, IconButton, Surface, Divider } from 'react-native-paper';
 import { useFocusEffect } from '@react-navigation/native'; // Keep useFocusEffect
 import apiClient from '../api/client'; // Keep apiClient
+import * as Animatable from 'react-native-animatable';
 import dayjs from 'dayjs';
 // --- 1. REMOVE SHARED ELEMENT IMPORT ---
 // import { SharedElement } from 'react-navigation-shared-element';
@@ -29,6 +30,9 @@ const JournalViewScreen = ({ route, navigation }: Props) => {
   const [entry, setEntry] = useState<JournalEntry | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(30)).current;
+
   // --- 5. ADD BACK DATA FETCHING LOGIC ---
   const fetchEntry = async () => {
     setLoading(true); // Ensure loading state is set
@@ -43,6 +47,21 @@ const JournalViewScreen = ({ route, navigation }: Props) => {
     }
   };
 
+  useEffect(() => {
+    if (entry) {
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 500,
+        useNativeDriver: true,
+      }).start();
+      Animated.timing(slideAnim, {
+        toValue: 0,
+        duration: 500,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [entry, fadeAnim, slideAnim]);
+
   // useFocusEffect ensures the data is fresh if you go back after editing
   useFocusEffect(useCallback(() => { fetchEntry(); }, [entryId]));
 
@@ -55,81 +74,154 @@ const JournalViewScreen = ({ route, navigation }: Props) => {
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <StatusBar barStyle={theme.dark ? "light-content" : "dark-content"} />
       <SafeAreaView style={{ flex: 1 }}>
-        <IconButton
-          icon="arrow-left"
-          size={28}
-          onPress={() => navigation.goBack()}
-          style={styles.backButton}
-          iconColor={theme.colors.onBackground}
-        />
-        <ScrollView contentContainerStyle={styles.scrollContent}>
-          {/* --- 2. REMOVE SHARED ELEMENT WRAPPER --- */}
-          {/* <SharedElement id={`item.${entry._id}.card`} style={styles.sharedElement}> */}
-          <View style={[styles.contentContainer, { backgroundColor: theme.colors.surface }]}>
-            <Text variant="headlineLarge" style={styles.title}>{entry.title}</Text>
-            <Text variant="bodySmall" style={[styles.date, { color: theme.colors.outline }]}>
-              {dayjs(entry.createdAt).format('MMMM D, YYYY')}
-            </Text>
-            <Text variant="bodyLarge" style={[styles.content, { color: theme.colors.onBackground }]}>
-              {entry.content}
-            </Text>
-          </View>
-          {/* </SharedElement> */}
+        <View style={styles.header}>
+          <IconButton
+            icon="arrow-left"
+            size={28}
+            onPress={() => navigation.goBack()}
+            style={styles.backButton}
+            iconColor={theme.colors.onBackground}
+          />
+          <View style={{ flex: 1 }} />
+        </View>
+
+        <ScrollView 
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+        >
+          <Animated.View
+            style={{
+              opacity: fadeAnim,
+              transform: [{ translateY: slideAnim }],
+            }}
+          >
+            <Animatable.View
+              animation="fadeInUp"
+              duration={600}
+              useNativeDriver={true}
+            >
+              <Surface style={[styles.contentContainer, { backgroundColor: theme.colors.surface }]} elevation={0}>
+                <View style={styles.titleSection}>
+                  <Text 
+                    variant="headlineLarge" 
+                    style={[styles.title, { color: theme.colors.onBackground }]}
+                    numberOfLines={3}
+                  >
+                    {entry.title}
+                  </Text>
+                </View>
+
+                <Divider style={[styles.divider, { backgroundColor: theme.colors.outline + "30" }]} />
+
+                <View style={styles.metaSection}>
+                  <Text style={[styles.date, { color: theme.colors.outline }]}>
+                    📅 {dayjs(entry.createdAt).format('MMMM D, YYYY')}
+                  </Text>
+                  <Text style={[styles.time, { color: theme.colors.outline }]}>
+                    🕐 {dayjs(entry.createdAt).format('h:mm A')}
+                  </Text>
+                </View>
+
+                <Divider style={[styles.divider, { backgroundColor: theme.colors.outline + "30" }]} />
+
+                <View style={styles.contentSection}>
+                  <Text 
+                    variant="bodyLarge" 
+                    style={[styles.content, { color: theme.colors.onSurface }]}
+                  >
+                    {entry.content}
+                  </Text>
+                </View>
+              </Surface>
+            </Animatable.View>
+          </Animated.View>
         </ScrollView>
-        <FAB
-          icon="pencil"
-          style={[styles.fab, { backgroundColor: theme.colors.primary }]}
-          color={theme.colors.onPrimary}
-          onPress={() => navigation.navigate('JournalEdit', { entryId: entry._id })}
-        />
+
+        <Animatable.View
+          animation="bounceInUp"
+          duration={1000}
+          delay={300}
+          useNativeDriver={true}
+          style={styles.fabContainer}
+        >
+          <FAB
+            icon="pencil"
+            style={[styles.fab, { backgroundColor: theme.colors.primary }]}
+            color={theme.colors.onPrimary}
+            onPress={() => navigation.navigate('JournalEdit', { entryId: entry._id })}
+          />
+        </Animatable.View>
       </SafeAreaView>
     </View>
   );
 };
 
-// --- 3. REMOVE STATIC CONFIGURATION ---
-// JournalViewScreen.sharedElements = ...
-
 const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  loader: { // Added loader style back
+  loader: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
   },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingTop: 50,
+  },
   backButton: {
-    position: 'absolute',
-    top: 10,
-    left: 10,
-    zIndex: 1,
+    marginTop: 0,
   },
   scrollContent: {
     flexGrow: 1,
-    justifyContent: 'center',
-    padding: 20,
-    paddingTop: 60, // Keep padding for custom back button
+    paddingHorizontal: 16,
+    paddingVertical: 20,
+    paddingBottom: 100,
   },
-  // sharedElement style is no longer needed
-  // sharedElement: {
-  //   flex: 1,
-  // },
   contentContainer: {
-    flex: 1,
-    padding: 24,
-    borderRadius: 28, // Keep the modern border radius
+    borderRadius: 20,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
+  titleSection: {
+    paddingHorizontal: 24,
+    paddingTop: 28,
+    paddingBottom: 12,
   },
   title: {
-    fontFamily: 'Inter_700Bold',
-    marginBottom: 8,
+    fontWeight: '700',
+    lineHeight: 36,
+  },
+  divider: {
+    marginHorizontal: 24,
+    marginVertical: 16,
+  },
+  metaSection: {
+    paddingHorizontal: 24,
+    gap: 8,
   },
   date: {
-    marginBottom: 24,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  time: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  contentSection: {
+    paddingHorizontal: 24,
+    paddingVertical: 24,
   },
   content: {
-    fontSize: 17,
     lineHeight: 28,
+    fontSize: 16,
+  },
+  fabContainer: {
+    position: 'absolute',
+    margin: 16,
+    right: 0,
+    bottom: 0,
   },
   fab: {
     position: 'absolute',

@@ -1,8 +1,10 @@
 import React from "react";
-import { createDrawerNavigator } from "@react-navigation/drawer";
+import { createDrawerNavigator, DrawerNavigationProp } from "@react-navigation/drawer";
 // --- 1. IMPORT THE ORIGINAL STACK NAVIGATOR ---
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { useTheme } from "react-native-paper";
+import { View, StyleSheet } from "react-native";
+import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 
 // --- Screen Imports ---
 import ConversationsListScreen from "../screens/ConversationsListScreen";
@@ -37,39 +39,100 @@ export type RootStackParamList = {
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const Drawer = createDrawerNavigator<DrawerParamList>();
 
-// --- Drawer Navigator Component (Unchanged) ---
+// --- Drawer Navigator Component ---
 const HomeDrawerNavigator = () => {
   const theme = useTheme();
   return (
     <Drawer.Navigator
       initialRouteName="Chats"
       screenOptions={{
-        headerStyle: { backgroundColor: theme.colors.surface },
+        headerStyle: { 
+          backgroundColor: theme.colors.surface,
+          elevation: 0,
+          borderBottomWidth: 1,
+          borderBottomColor: theme.colors.outline + '10',
+        },
         headerTintColor: theme.colors.onSurface,
+        headerTitleStyle: {
+          fontWeight: '700',
+          fontSize: 18,
+          letterSpacing: 0.3,
+        },
         drawerActiveTintColor: theme.colors.primary,
+        drawerInactiveTintColor: theme.colors.onSurfaceVariant,
+        drawerActiveBackgroundColor: theme.colors.primary + '12',
+        drawerLabelStyle: {
+          marginLeft: -16,
+          fontWeight: '600',
+          fontSize: 14,
+          letterSpacing: 0.1,
+        },
+        drawerStyle: {
+          backgroundColor: theme.colors.surface,
+          borderRightWidth: 1,
+          borderRightColor: theme.colors.outline + '12',
+          width: '75%',
+        },
+        drawerItemStyle: {
+          borderRadius: 12,
+          marginHorizontal: 8,
+          marginVertical: 4,
+        },
+        drawerContentStyle: {
+          paddingTop: 12,
+        },
       }}
     >
       <Drawer.Screen
         name="Chats"
         component={ConversationsListScreen}
-        options={{ title: "Your Chats" }}
+        options={{ 
+          title: "  Your Chats",
+          drawerIcon: ({ color, size }) => (
+            <MaterialCommunityIcons name="chat-outline" size={size} color={color} />
+          ),
+        }}
       />
       <Drawer.Screen
         name="BreathingList"
         component={BreathingListScreen}
-        options={{ title: "Guided Breathing" }}
+        options={{ 
+          title: "  Guided Breathing",
+          drawerIcon: ({ color, size }) => (
+            <MaterialCommunityIcons name="meditation" size={size} color={color} />
+          ),
+        }}
       />
       <Drawer.Screen
         name="Insights"
         component={InsightsScreen}
-        options={{ title: "My Mood Insights" }}
+        options={{ 
+          title: "  My Mood Insights",
+          drawerIcon: ({ color, size }) => (
+            <MaterialCommunityIcons name="chart-line" size={size} color={color} />
+          ),
+        }}
       />
       <Drawer.Screen
         name="Journal"
         component={JournalListScreen}
-        options={{ title: "Your Journal" }}
+        options={{ 
+          title: "  Your Journal",
+          drawerIcon: ({ color, size }) => (
+            <MaterialCommunityIcons name="notebook-outline" size={size} color={color} />
+          ),
+        }}
       />
-      <Drawer.Screen name="Settings" component={SettingsScreen} />
+      <Drawer.Screen 
+        name="Settings" 
+        component={SettingsScreen}
+        options={{ 
+          title: "  Settings",
+          drawerIcon: ({ color, size }) => (
+            <MaterialCommunityIcons name="cog-outline" size={size} color={color} />
+          ),
+        }}
+      />
     </Drawer.Navigator>
   );
 };
@@ -80,8 +143,15 @@ const RootNavigator = () => {
   return (
     <Stack.Navigator
       screenOptions={{
-        headerStyle: { backgroundColor: theme.colors.surface },
+        headerStyle: { 
+          backgroundColor: theme.colors.surface,
+        },
         headerTintColor: theme.colors.onSurface,
+        headerTitleStyle: {
+          fontWeight: '700',
+          fontSize: 18,
+        },
+        headerShadowVisible: false,
       }}
     >
       <Stack.Screen
@@ -92,23 +162,32 @@ const RootNavigator = () => {
       <Stack.Screen
         name="Chat"
         component={ChatScreen}
-        options={({ route }) => ({ title: route.params.title })}
+        options={({ route }) => ({ 
+          title: route.params.title,
+          headerBackTitleVisible: false,
+        })}
       />
       <Stack.Screen
         name="JournalView"
         component={JournalViewScreen}
-        // --- 4. REMOVE CUSTOM ANIMATION OPTIONS ---
         options={{
           title: "Journal Entry",
-          headerShown: false, // Keep header hidden if using custom back button
+          headerShown: false, 
         }}
       />
-      <Stack.Screen name="JournalEdit" component={JournalEditScreen} />
+      <Stack.Screen 
+        name="JournalEdit" 
+        component={JournalEditScreen}
+        options={{
+          headerShown: false,
+        }}
+      />
       <Stack.Screen
         name="BreathingPlayer"
         component={BreathingPlayerScreen}
         options={({ route }) => ({
           title: route.params.exerciseName,
+          headerShown: false,
         })}
       />
     </Stack.Navigator>

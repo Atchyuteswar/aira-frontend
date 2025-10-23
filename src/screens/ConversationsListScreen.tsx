@@ -8,6 +8,7 @@ import {
   Animated,
   Image,
   useColorScheme,
+  ScrollView,
 } from "react-native";
 import {
   FAB,
@@ -22,6 +23,8 @@ import {
   Button,
   TextInput,
   Snackbar, // --- 1. IMPORT SNACKBAR ---
+  Surface,
+  Chip,
 } from "react-native-paper";
 import { useFocusEffect } from "@react-navigation/native";
 import apiClient from "../api/client";
@@ -76,6 +79,17 @@ const AnimatedConversationCard = ({
     }).start();
   }, [fadeAnim, slideAnim, index]);
 
+  const getTimeColor = () => {
+    if (!item.lastMessage) return theme.colors.outline;
+    const minutesAgo = dayjs().diff(
+      dayjs(item.lastMessage.createdAt),
+      "minutes"
+    );
+    if (minutesAgo < 60) return theme.colors.primary;
+    if (minutesAgo < 1440) return theme.colors.secondary;
+    return theme.colors.outline;
+  };
+
   return (
     <Animated.View
       style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}
@@ -91,40 +105,49 @@ const AnimatedConversationCard = ({
         android_ripple={{ color: theme.colors.primaryContainer }}
         style={({ pressed }) => [
           styles.card,
-          { backgroundColor: theme.colors.surface },
+          { 
+            backgroundColor: theme.colors.surface,
+            borderColor: theme.colors.outline + "20",
+          },
           pressed && styles.cardPressed,
         ]}
       >
-        <Avatar.Image
-          size={40}
-          source={require("../../assets/aira-avatar.png")}
-          style={{ marginRight: 16 }}
-        />
+        
         <View style={styles.cardTextContainer}>
-          <Text variant="titleMedium" numberOfLines={1}>
+          <Text variant="titleMedium" numberOfLines={1} style={styles.cardTitle}>
             {item.title}
           </Text>
           {item.lastMessage ? (
             <Text
-              variant="bodyMedium"
+              variant="bodySmall"
               numberOfLines={1}
-              style={{ color: theme.colors.outline }}
+              style={{ color: theme.colors.outline, marginTop: 4 }}
             >
               {item.lastMessage.text}
             </Text>
           ) : (
             <Text
-              variant="bodyMedium"
-              style={{ fontStyle: "italic", color: theme.colors.outline }}
+              variant="bodySmall"
+              style={{ fontStyle: "italic", color: theme.colors.outline, marginTop: 4 }}
             >
               No messages yet
             </Text>
           )}
         </View>
         {item.lastMessage && (
-          <Text variant="bodySmall" style={{ color: theme.colors.outline }}>
-            {dayjs(item.lastMessage.createdAt).fromNow(true)}
-          </Text>
+          <View
+            style={[styles.timeChip, { backgroundColor: getTimeColor() + "20" }]}
+          >
+            <Text
+              style={{
+                color: getTimeColor(),
+                fontWeight: "600",
+                fontSize: 11,
+              }}
+            >
+              {dayjs(item.lastMessage.createdAt).fromNow(true)}
+            </Text>
+          </View>
         )}
       </Pressable>
     </Animated.View>
@@ -456,7 +479,7 @@ const ConversationsListScreen = ({ navigation }: any) => {
         <Snackbar
           visible={isOffline}
           onDismiss={() => setIsOffline(false)}
-          duration={Snackbar.DURATION_INDEFINITE}
+          duration={4000}
           action={{
             label: "Dismiss",
             onPress: () => setIsOffline(false),
@@ -480,7 +503,8 @@ const styles = StyleSheet.create({
     padding: 16,
     marginVertical: 6,
     marginHorizontal: 8,
-    borderRadius: 28,
+    borderRadius: 16,
+    borderWidth: 1,
     elevation: 2,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
@@ -488,7 +512,20 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
   },
   cardPressed: { transform: [{ scale: 0.98 }] },
-  cardTextContainer: { flex: 1, marginRight: 8 },
+  avatarContainer: {
+    borderRadius: 32,
+    padding: 4,
+    marginRight: 16,
+  },
+  cardTextContainer: { flex: 1, marginRight: 12 },
+  cardTitle: {
+    fontWeight: "600",
+  },
+  timeChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
   fab: { position: "absolute", margin: 16, right: 0, bottom: 0 },
   dialog: { borderRadius: 28 },
   emptyContainer: {

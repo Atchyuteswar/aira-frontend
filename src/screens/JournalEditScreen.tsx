@@ -1,6 +1,7 @@
-import React, { useState, useLayoutEffect, useCallback } from "react";
-import { View, StyleSheet, ScrollView, Alert, ActivityIndicator } from "react-native";
-import { TextInput, Button, useTheme, FAB, Portal, Text } from "react-native-paper";
+import React, { useState, useLayoutEffect, useCallback, useEffect, useRef } from "react";
+import { View, StyleSheet, ScrollView, Alert, ActivityIndicator, Animated, KeyboardAvoidingView, Platform } from "react-native";
+import { TextInput, Button, useTheme, FAB, Portal, Text, Surface, Divider, IconButton } from "react-native-paper";
+import * as Animatable from 'react-native-animatable';
 import apiClient from "../api/client";
 import { Audio } from 'expo-av'; // --- 1. IMPORT EXPO-AV ---
 import * as Haptics from 'expo-haptics';
@@ -13,6 +14,22 @@ const JournalEditScreen = ({ route, navigation }: any) => {
   const theme = useTheme();
   const [initialTitle, setInitialTitle] = useState("");
   const [initialContent, setInitialContent] = useState("");
+
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(30)).current;
+
+  useEffect(() => {
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 500,
+      useNativeDriver: true,
+    }).start();
+    Animated.timing(slideAnim, {
+      toValue: 0,
+      duration: 500,
+      useNativeDriver: true,
+    }).start();
+  }, [fadeAnim, slideAnim]);
 
   // --- 2. NEW STATE FOR VOICE RECORDING ---
   const [recording, setRecording] = useState<Audio.Recording | undefined>();
@@ -152,91 +169,218 @@ const JournalEditScreen = ({ route, navigation }: any) => {
 
   return (
     // --- 5. WRAP IN A PARENT VIEW FOR FAB AND OVERLAY ---
-    <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
-      <ScrollView
-        style={[styles.container]}
-        contentContainerStyle={{ flexGrow: 1 }}
-        keyboardShouldPersistTaps="handled"
-      >
-        <TextInput
-          placeholder="Title"
-          value={title}
-          onChangeText={setTitle}
-          style={[styles.titleInput, { color: theme.colors.onSurface }]}
-          placeholderTextColor={theme.colors.outline}
-          underlineColor="transparent"
-          activeUnderlineColor="transparent"
-          selectionColor={theme.colors.primary}
-          editable={!isRecording && !isTranscribing}
-        />
-        <TextInput
-          placeholder="Write what's on your mind..."
-          value={content}
-          onChangeText={setContent}
-          style={[styles.contentInput, { color: theme.colors.onSurface }]}
-          placeholderTextColor={theme.colors.outline}
-          multiline
-          underlineColor="transparent"
-          activeUnderlineColor="transparent"
-          selectionColor={theme.colors.primary}
-          editable={!isRecording && !isTranscribing}
-        />
-        {entryId && (
-          <Button
-            mode="outlined"
-            onPress={handleDelete}
-            textColor={theme.colors.error}
-            style={[styles.button, { borderColor: theme.colors.error, marginBottom: 40 }]}
-            disabled={isRecording || isTranscribing}
+    <KeyboardAvoidingView 
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      style={{ flex: 1, backgroundColor: theme.colors.background }}
+    >
+      <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
+        <View style={styles.header}>
+          <IconButton
+            icon="arrow-left"
+            size={28}
+            onPress={() => navigation.goBack()}
+            style={styles.backButton}
+            iconColor={theme.colors.onBackground}
+          />
+          <View style={{ flex: 1 }} />
+          <Text style={styles.headerEmoji}>✍️</Text>
+        </View>
+
+        <ScrollView
+          style={[styles.container]}
+          contentContainerStyle={{ flexGrow: 1, paddingBottom: 100 }}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          <Animated.View
+            style={{
+              opacity: fadeAnim,
+              transform: [{ translateY: slideAnim }],
+            }}
           >
-            Delete Entry
-          </Button>
+            <Animatable.View
+              animation="fadeInUp"
+              duration={600}
+              useNativeDriver={true}
+            >
+              <Surface 
+                style={[styles.inputContainer, { backgroundColor: theme.colors.surface }]} 
+                elevation={0}
+              >
+                <View style={styles.titleSection}>
+                  <Text style={[styles.sectionLabel, { color: theme.colors.primary }]}>
+                    📝 Entry Title
+                  </Text>
+                  <TextInput
+                    placeholder="What's on your mind?"
+                    value={title}
+                    onChangeText={setTitle}
+                    style={[styles.titleInput, { color: theme.colors.onSurface }]}
+                    placeholderTextColor={theme.colors.outline}
+                    underlineColor="transparent"
+                    activeUnderlineColor="transparent"
+                    selectionColor={theme.colors.primary}
+                    editable={!isRecording && !isTranscribing}
+                    mode="flat"
+                  />
+                </View>
+
+                <Divider style={[styles.divider, { backgroundColor: theme.colors.outline + "20" }]} />
+
+                <View style={styles.contentSection}>
+                  <Text style={[styles.sectionLabel, { color: theme.colors.primary }]}>
+                    💭 Your Thoughts
+                  </Text>
+                  <TextInput
+                    placeholder="Write what's on your mind... or use the voice recorder below!"
+                    value={content}
+                    onChangeText={setContent}
+                    style={[styles.contentInput, { color: theme.colors.onSurface }]}
+                    placeholderTextColor={theme.colors.outline}
+                    multiline
+                    underlineColor="transparent"
+                    activeUnderlineColor="transparent"
+                    selectionColor={theme.colors.primary}
+                    editable={!isRecording && !isTranscribing}
+                    mode="flat"
+                  />
+                </View>
+              </Surface>
+            </Animatable.View>
+
+            {entryId && (
+              <Animatable.View
+                animation="fadeInUp"
+                duration={600}
+                delay={100}
+                useNativeDriver={true}
+              >
+                <Button
+                  mode="outlined"
+                  onPress={handleDelete}
+                  textColor={theme.colors.error}
+                  style={[styles.deleteButton, { borderColor: theme.colors.error, marginBottom: 20 }]}
+                  disabled={isRecording || isTranscribing}
+                >
+                  🗑️ Delete Entry
+                </Button>
+              </Animatable.View>
+            )}
+          </Animated.View>
+        </ScrollView>
+
+        {/* --- 6. VOICE RECORDING FAB (ONLY FOR NEW ENTRIES) --- */}
+        {!entryId && (
+          <Animatable.View
+            animation="bounceInUp"
+            duration={1000}
+            delay={300}
+            useNativeDriver={true}
+            style={styles.fabContainer}
+          >
+            <FAB
+              icon={isRecording ? "stop" : "microphone"}
+              style={[
+                styles.fab,
+                {
+                  backgroundColor: isRecording
+                    ? theme.colors.errorContainer
+                    : theme.colors.primary,
+                },
+              ]}
+              color={
+                isRecording
+                  ? theme.colors.onErrorContainer
+                  : theme.colors.onPrimary
+              }
+              onPress={isRecording ? stopRecording : startRecording}
+              disabled={isTranscribing}
+            />
+          </Animatable.View>
         )}
-      </ScrollView>
 
-      {/* --- 6. VOICE RECORDING FAB (ONLY FOR NEW ENTRIES) --- */}
-      {!entryId && (
-        <FAB
-            icon={isRecording ? "stop" : "microphone"}
-            style={[styles.fab, { backgroundColor: isRecording ? theme.colors.errorContainer : theme.colors.primary }]}
-            color={isRecording ? theme.colors.onErrorContainer : theme.colors.onPrimary}
-            onPress={isRecording ? stopRecording : startRecording}
-            disabled={isTranscribing}
-        />
-      )}
-
-      {/* --- 7. TRANSCRIBING OVERLAY --- */}
-      {isTranscribing && (
-        <Portal>
+        {/* --- 7. TRANSCRIBING OVERLAY --- */}
+        {isTranscribing && (
+          <Portal>
             <View style={styles.overlay}>
-                <ActivityIndicator size="large" />
-                <Text style={styles.overlayText}>Transcribing your voice note...</Text>
+              <ActivityIndicator size="large" color={theme.colors.onPrimary} />
+              <Text style={[styles.overlayText, { color: theme.colors.onPrimary }]}>
+                🎙️ Transcribing your voice note...
+              </Text>
             </View>
-        </Portal>
-      )}
-    </View>
+          </Portal>
+        )}
+      </View>
+    </KeyboardAvoidingView>
   );
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, paddingHorizontal: 16 },
+  container: { flex: 1, paddingHorizontal: 16, paddingTop: 12 },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 4,
+    paddingVertical: 12,
+  },
+  headerEmoji: {
+    fontSize: 32,
+    marginRight: 12,
+  },
+  backButton: {
+    margin: 0,
+  },
+  inputContainer: {
+    borderRadius: 20,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
+  titleSection: {
+    paddingHorizontal: 24,
+    paddingTop: 24,
+    paddingBottom: 12,
+  },
+  sectionLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 12,
+  },
   titleInput: {
-    fontSize: 28,
-    fontFamily: "Inter_700Bold",
-    backgroundColor: "transparent",
+    fontSize: 24,
+    fontWeight: '700',
+    backgroundColor: 'transparent',
     paddingHorizontal: 0,
-    marginTop: 8,
+    paddingVertical: 0,
+  },
+  divider: {
+    marginHorizontal: 24,
+    marginVertical: 12,
+  },
+  contentSection: {
+    paddingHorizontal: 24,
+    paddingVertical: 12,
   },
   contentInput: {
     flex: 1,
-    fontSize: 17,
-    lineHeight: 28,
-    backgroundColor: "transparent",
+    fontSize: 16,
+    lineHeight: 24,
+    backgroundColor: 'transparent',
     paddingHorizontal: 0,
-    textAlignVertical: "top",
-    marginTop: 16,
+    paddingVertical: 0,
+    textAlignVertical: 'top',
+    minHeight: 200,
   },
-  button: { marginTop: 16 },
+  deleteButton: {
+    marginTop: 20,
+    marginHorizontal: 0,
+    borderRadius: 12,
+  },
+  fabContainer: {
+    position: 'absolute',
+    margin: 16,
+    right: 0,
+    bottom: 0,
+  },
   fab: {
     position: 'absolute',
     margin: 16,
@@ -245,15 +389,16 @@ const styles = StyleSheet.create({
   },
   overlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.6)',
+    backgroundColor: 'rgba(0,0,0,0.7)',
     justifyContent: 'center',
     alignItems: 'center',
+    gap: 16,
   },
   overlayText: {
     marginTop: 16,
-    color: 'white',
-    fontFamily: 'Inter_500Medium',
-  }
+    fontWeight: '600',
+    fontSize: 16,
+  },
 });
 
 export default JournalEditScreen;
