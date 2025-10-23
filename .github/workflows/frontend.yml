@@ -50,7 +50,6 @@ jobs:
     env:
       # Make Expo token available to all steps
       EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-      # Get version from tag (e.g., v0.4.0) - used for naming artifacts
       APP_VERSION: ${{ github.ref_name }}
 
     steps:
@@ -76,7 +75,7 @@ jobs:
         run: |
           # Use jq to parse JSON output and get the build URL
           # Note: Expo might output multiple JSON objects, `jq -s` handles this
-          BUILD_URL=$(eas build --platform android --profile production --non-interactive --json | jq -s -r '.[0] | .buildUrl')
+          BUILD_URL=$(eas build --platform android --profile production --non-interactive --json | jq -r '.[0].buildUrl')
           echo "Build URL: $BUILD_URL"
           if [ -z "$BUILD_URL" ] || [ "$BUILD_URL" == "null" ]; then
             echo "Error: Could not extract build URL from EAS build command output."
