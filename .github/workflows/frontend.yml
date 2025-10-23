@@ -77,7 +77,7 @@ jobs:
           # Start the build (don't capture JSON here)
           eas build --platform android --profile production --non-interactive --no-wait
           echo "Build started. Fetching latest build details..."
-          # Wait a bit longer for EAS list to potentially update
+          # Wait a bit for EAS list to potentially update
           sleep 10
           # Explicitly check authentication status
           echo "Checking EAS authentication..."
@@ -87,21 +87,37 @@ jobs:
             exit 1
           fi
           echo "EAS authentication successful."
-          # Fetch the latest build details JSON
-          echo "Fetching latest build list..."
-          LATEST_BUILD_JSON=$(eas build:list --platform android --limit 1 --json)
-          if [ $? -ne 0 ]; then
-            echo "Error: 'eas build:list' command failed."
-            exit 1
-          fi
-          echo "--- Latest Build JSON Output ---"
-          echo "$LATEST_BUILD_JSON"
-          echo "--- End JSON Output ---"
-          # Try extracting the URL using a robust jq filter
-          BUILD_URL=$(echo "$LATEST_BUILD_JSON" | jq -r '.[0].buildUrl // empty')
+
+          # --- Retry loop for build:list ---
+          LATEST_BUILD_JSON=""
+          BUILD_URL=""
+          for i in 1 2 3; do
+            echo "Attempt $i to fetch latest build list..."
+            LATEST_BUILD_JSON=$(eas build:list --platform android --limit 1 --json)
+            if [ $? -eq 0 ]; then
+              echo "--- Latest Build JSON Output (Attempt $i) ---"
+              echo "$LATEST_BUILD_JSON"
+              echo "--- End JSON Output ---"
+              BUILD_URL=$(echo "$LATEST_BUILD_JSON" | jq -r '.[0].buildUrl // empty')
+              if [ -n "$BUILD_URL" ] && [ "$BUILD_URL" != "null" ]; then
+                echo "Successfully fetched and parsed build list."
+                break # Exit loop on success
+              else
+                echo "Warning: Fetched build list but couldn't parse buildUrl (JSON might be empty or wrong structure)."
+              fi
+            else
+              echo "Warning: 'eas build:list' command failed on attempt $i."
+            fi
+            if [ $i -lt 3 ]; then
+              echo "Waiting 15 seconds before retry..."
+              sleep 15
+            fi
+          done
+          # --- End Retry loop ---
+
           echo "Extracted Build URL: $BUILD_URL"
           if [ -z "$BUILD_URL" ] || [ "$BUILD_URL" == "null" ]; then
-            echo "Error: Could not extract build URL from eas build:list JSON."
+            echo "Error: Could not extract build URL using eas build:list after multiple attempts."
             exit 1
           fi
           # Save the URL for the next step
@@ -126,6 +142,7 @@ jobs:
             echo "--- Build List JSON (Attempt $i) ---"
             echo "$BUILD_DETAILS_JSON"
             echo "--- End JSON Output ---"
+            # Extract artifact URL specifically for the build URL we are waiting for
             ARTIFACT_URL=$(echo "$BUILD_DETAILS_JSON" | jq -r --arg BUILD_URL "${{ steps.build.outputs.build_url }}" '.[] | select(.buildUrl == $BUILD_URL) | .artifacts.buildUrl // empty')
             if [ -n "$ARTIFACT_URL" ] && [ "$ARTIFACT_URL" != "null" ]; then
               echo "Found artifact URL."
