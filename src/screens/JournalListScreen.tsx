@@ -14,6 +14,8 @@ import { useFocusEffect } from "@react-navigation/native";
 import * as Animatable from "react-native-animatable";
 import apiClient from "../api/client";
 import dayjs from "dayjs";
+// --- 1. REMOVE THE SHARED ELEMENT IMPORT ---
+// import { SharedElement } from "react-navigation-shared-element";
 
 interface JournalEntry {
   _id: string;
@@ -58,9 +60,12 @@ const AnimatedJournalCard = ({
     <Animated.View
       style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}
     >
+      {/* --- 2. REMOVE THE SHARED ELEMENT WRAPPER --- */}
+      {/* <SharedElement id={`item.${item._id}.card`}> */}
       <Pressable
+        // --- 3. REVERT NAVIGATION TO PASS ONLY entryId ---
         onPress={() =>
-          navigation.navigate("JournalView", { entryId: item._id })
+          navigation.navigate("JournalView", { entryId: item._id }) // Changed back
         }
         android_ripple={{ color: theme.colors.primaryContainer }}
         style={[
@@ -68,7 +73,6 @@ const AnimatedJournalCard = ({
             width: cardSize,
             height: cardSize,
             backgroundColor: theme.colors.surface,
-            borderRadius: theme.roundness,
           },
           styles.card,
         ]}
@@ -93,6 +97,7 @@ const AnimatedJournalCard = ({
           {dayjs(item.createdAt).format("MMM D, YYYY")}
         </Text>
       </Pressable>
+      {/* </SharedElement> */}
     </Animated.View>
   );
 };
@@ -122,18 +127,14 @@ const JournalListScreen = ({ navigation }: any) => {
   );
 
   const EmptyListComponent = () => {
-    // 3. Add logic to select the correct illustration
     const illustrationSource =
-      colorScheme === 'dark'
+      colorScheme === "dark"
         ? require("../../assets/journal-illustration-dark.png")
         : require("../../assets/journal-illustration.png");
 
     return (
       <View style={styles.emptyContainer}>
-        <Image
-          source={illustrationSource} // Use the selected illustration
-          style={styles.emptyImage}
-        />
+        <Image source={illustrationSource} style={styles.emptyImage} />
         <Text style={[styles.emptyText, { color: theme.colors.onSurface }]}>
           Your Journal Awaits
         </Text>
@@ -192,14 +193,15 @@ const styles = StyleSheet.create({
   listContent: { padding: 8, flexGrow: 1 },
   card: {
     margin: 6,
-    elevation: 3,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
     padding: 16,
     justifyContent: "space-between",
     alignItems: "flex-start",
+    borderRadius: 28,
+    elevation: 2,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
   },
   cardTitle: { fontFamily: "Inter_500Medium" },
   cardContent: { marginTop: 8 },

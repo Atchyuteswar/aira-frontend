@@ -21,14 +21,20 @@ import {
   Portal,
   Button,
   TextInput,
+  Snackbar, // --- 1. IMPORT SNACKBAR ---
 } from "react-native-paper";
 import { useFocusEffect } from "@react-navigation/native";
 import apiClient from "../api/client";
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
 import * as Animatable from "react-native-animatable";
+import * as Haptics from "expo-haptics";
+import AsyncStorage from "@react-native-async-storage/async-storage"; // --- 1. IMPORT ASYNCSTORAGE ---
 
 dayjs.extend(relativeTime);
+
+const CONVERSATIONS_PER_PAGE = 20;
+const CACHE_KEY = "cachedConversations"; // Define a key for our cache
 
 interface Conversation {
   _id: string;
@@ -50,6 +56,7 @@ const AnimatedConversationCard = ({
   navigation: any;
   onLongPress: () => void;
 }) => {
+  // (This component is unchanged)
   const theme = useTheme();
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(20)).current;
@@ -90,7 +97,7 @@ const AnimatedConversationCard = ({
       >
         <Avatar.Image
           size={40}
-          source={require("../../assets/aira-avatar.png")} // Your new avatar image
+          source={require("../../assets/aira-avatar.png")}
           style={{ marginRight: 16 }}
         />
         <View style={styles.cardTextContainer}>
@@ -126,8 +133,15 @@ const AnimatedConversationCard = ({
 
 const ConversationsListScreen = ({ navigation }: any) => {
   const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(0);
+  const [hasMore, setHasMore] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isOffline, setIsOffline] = useState(false); // --- 2. NEW STATE FOR OFFLINE INDICATOR ---
+
   const theme = useTheme();
+  // (Other state variables are unchanged)
   const colorScheme = useColorScheme();
   const [menuVisible, setMenuVisible] = useState(false);
   const [selectedConvo, setSelectedConvo] = useState<Conversation | null>(null);
@@ -135,25 +149,89 @@ const ConversationsListScreen = ({ navigation }: any) => {
   const [deleteDialogVisible, setDeleteDialogVisible] = useState(false);
   const [newTitle, setNewTitle] = useState("");
 
-  const fetchConversations = async () => {
+  // --- 3. UPDATED FETCH LOGIC WITH CACHING ---
+  const fetchConversations = async (currentPage: number, isRefresh = false) => {
+    if ((loadingMore || !hasMore) && !isRefresh) return;
+    if (currentPage > 0) setLoadingMore(true);
+
     try {
-      const response = await apiClient.get("/conversations/");
-      setConversations(response.data);
+      const response = await apiClient.get("/conversations/", {
+        params: {
+          skip: currentPage * CONVERSATIONS_PER_PAGE,
+          limit: CONVERSATIONS_PER_PAGE,
+        },
+      });
+      setIsOffline(false); // We're online, hide the snackbar
+      const { items, total } = response.data;
+
+      const newConversations =
+        currentPage === 0 ? items : [...conversations, ...items];
+      setConversations(newConversations);
+
+      // --- SAVE TO CACHE (ONLY THE FIRST PAGE FOR SIMPLICITY) ---
+      if (currentPage === 0) {
+        await AsyncStorage.setItem(CACHE_KEY, JSON.stringify(items));
+      }
+
+      setPage(currentPage + 1);
+      setHasMore(newConversations.length < total);
     } catch (error) {
-      console.error("Failed to fetch conversations", error);
-      Alert.alert("Error", "Could not load your conversations.");
+      console.error("Failed to fetch conversations (likely offline):", error);
+      setIsOffline(true); // Show offline snackbar
+      // Don't alert if we already have cached data to show
+      if (conversations.length === 0) {
+        Alert.alert("Error", "Could not load your conversations.");
+      }
     } finally {
-      setLoading(false);
+      setInitialLoading(false);
+      setLoadingMore(false);
+      setIsRefreshing(false);
     }
   };
 
+  // --- 4. NEW CACHE-FIRST LOADING LOGIC ---
   useFocusEffect(
     useCallback(() => {
-      fetchConversations();
+      const loadData = async () => {
+        setInitialLoading(true);
+        // Load from cache first for instant UI
+        try {
+          const cachedData = await AsyncStorage.getItem(CACHE_KEY);
+          if (cachedData) {
+            setConversations(JSON.parse(cachedData));
+          }
+        } catch (e) {
+          console.error("Failed to load from cache", e);
+        }
+
+        // Then, fetch from network to get the latest
+        await handleRefresh();
+        setInitialLoading(false);
+      };
+
+      loadData();
     }, [])
   );
 
+  const handleRefresh = useCallback(async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setIsRefreshing(true);
+    setPage(0);
+    setHasMore(true);
+    // Don't clear conversations immediately, wait for fetch
+    await fetchConversations(0, true);
+  }, []);
+
+  const handleLoadMore = () => {
+    if (!isOffline) {
+      // Don't try to load more if we're offline
+      fetchConversations(page);
+    }
+  };
+
+  // (Other handlers like openMenu, handleRename, handleDelete, etc. are unchanged)
   const openMenu = (convo: Conversation) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setSelectedConvo(convo);
     setNewTitle(convo.title);
     setMenuVisible(true);
@@ -178,13 +256,21 @@ const ConversationsListScreen = ({ navigation }: any) => {
       await apiClient.put(`/conversations/${selectedConvo._id}`, {
         title: newTitle,
       });
-      setConversations((convos) =>
-        convos.map((c) =>
-          c._id === selectedConvo._id ? { ...c, title: newTitle } : c
-        )
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      const updatedConversations = conversations.map((c) =>
+        c._id === selectedConvo._id ? { ...c, title: newTitle } : c
+      );
+      setConversations(updatedConversations);
+      // Update cache after rename
+      await AsyncStorage.setItem(
+        CACHE_KEY,
+        JSON.stringify(updatedConversations)
       );
     } catch (error) {
-      Alert.alert("Error", "Failed to rename conversation.");
+      Alert.alert(
+        "Error",
+        "Failed to rename conversation. You may be offline."
+      );
     } finally {
       hideRenameDialog();
     }
@@ -194,17 +280,36 @@ const ConversationsListScreen = ({ navigation }: any) => {
     if (!selectedConvo) return;
     try {
       await apiClient.delete(`/conversations/${selectedConvo._id}`);
-      setConversations((convos) =>
-        convos.filter((c) => c._id !== selectedConvo._id)
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      const updatedConversations = conversations.filter(
+        (c) => c._id !== selectedConvo._id
+      );
+      setConversations(updatedConversations);
+      // Update cache after delete
+      await AsyncStorage.setItem(
+        CACHE_KEY,
+        JSON.stringify(updatedConversations)
       );
     } catch (error) {
-      Alert.alert("Error", "Failed to delete conversation.");
+      Alert.alert(
+        "Error",
+        "Failed to delete conversation. You may be offline."
+      );
     } finally {
       hideDeleteDialog();
     }
   };
 
   const handleNewChat = async () => {
+    // Creating new chats is disabled offline
+    if (isOffline) {
+      Alert.alert(
+        "You are offline",
+        "Please connect to the internet to start a new chat."
+      );
+      return;
+    }
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     try {
       const response = await apiClient.post("/conversations/");
       navigation.navigate("Chat", {
@@ -217,20 +322,15 @@ const ConversationsListScreen = ({ navigation }: any) => {
     }
   };
 
-  // --- NEW ILLUSTRATED EMPTY STATE COMPONENT ---
   const EmptyListComponent = () => {
-    // 3. Add logic to select the correct illustration
+    // (This component is unchanged)
     const illustrationSource =
-      colorScheme === 'dark'
+      colorScheme === "dark"
         ? require("../../assets/your-illustration-dark.png")
         : require("../../assets/your-illustration.png");
-
     return (
       <View style={styles.emptyContainer}>
-        <Image
-          source={illustrationSource} // Use the selected illustration
-          style={styles.emptyImage}
-        />
+        <Image source={illustrationSource} style={styles.emptyImage} />
         <Text style={[styles.emptyText, { color: theme.colors.onSurface }]}>
           Ready for a new chat?
         </Text>
@@ -241,9 +341,16 @@ const ConversationsListScreen = ({ navigation }: any) => {
     );
   };
 
-  if (loading) {
+  const renderFooter = () => {
+    if (!loadingMore) return null;
+    return <ActivityIndicator style={{ marginVertical: 20 }} />;
+  };
+
+  // Show loader only if we have no cached data to display
+  if (initialLoading && conversations.length === 0) {
     return <ActivityIndicator style={styles.loader} />;
   }
+
   return (
     <Portal.Host>
       <View
@@ -280,12 +387,17 @@ const ConversationsListScreen = ({ navigation }: any) => {
             </Menu>
           )}
           contentContainerStyle={styles.listContent}
-          ListEmptyComponent={EmptyListComponent}
+          ListEmptyComponent={!initialLoading ? EmptyListComponent : null}
+          onEndReached={handleLoadMore}
+          onEndReachedThreshold={0.5}
+          ListFooterComponent={renderFooter}
+          onRefresh={handleRefresh}
+          refreshing={isRefreshing}
         />
         <Animatable.View
-          animation="bounceInUp" // This is the animation!
-          duration={1000} // Animation speed in milliseconds
-          delay={300} // Wait a moment before animating
+          animation="bounceInUp"
+          duration={1000}
+          delay={300}
           useNativeDriver={true}
         >
           <FAB
@@ -296,7 +408,7 @@ const ConversationsListScreen = ({ navigation }: any) => {
           />
         </Animatable.View>
 
-        {/* Rename Dialog */}
+        {/* (Dialogs are unchanged) */}
         <Portal>
           <Dialog
             visible={renameDialogVisible}
@@ -318,8 +430,6 @@ const ConversationsListScreen = ({ navigation }: any) => {
             </Dialog.Actions>
           </Dialog>
         </Portal>
-
-        {/* Delete Confirmation Dialog */}
         <Portal>
           <Dialog
             visible={deleteDialogVisible}
@@ -341,33 +451,46 @@ const ConversationsListScreen = ({ navigation }: any) => {
             </Dialog.Actions>
           </Dialog>
         </Portal>
+
+        {/* --- 5. OFFLINE INDICATOR SNACKBAR --- */}
+        <Snackbar
+          visible={isOffline}
+          onDismiss={() => setIsOffline(false)}
+          duration={Snackbar.DURATION_INDEFINITE}
+          action={{
+            label: "Dismiss",
+            onPress: () => setIsOffline(false),
+          }}
+        >
+          You are offline. Displaying cached conversations.
+        </Snackbar>
       </View>
     </Portal.Host>
   );
 };
+
 const styles = StyleSheet.create({
+  // (Styles are unchanged)
   container: { flex: 1 },
   loader: { flex: 1, justifyContent: "center", alignItems: "center" },
-  listContent: { padding: 8, flexGrow: 1 }, // Added flexGrow for empty state
+  listContent: { padding: 8, flexGrow: 1 },
   card: {
     flexDirection: "row",
     alignItems: "center",
     padding: 16,
-    marginVertical: 4,
+    marginVertical: 6,
     marginHorizontal: 8,
-    borderRadius: 20, // Matched to new theme roundness
+    borderRadius: 28,
     elevation: 2,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
   },
   cardPressed: { transform: [{ scale: 0.98 }] },
   cardTextContainer: { flex: 1, marginRight: 8 },
   fab: { position: "absolute", margin: 16, right: 0, bottom: 0 },
-  dialog: { borderRadius: 20 }, // Matched to new theme roundness
-
-  // --- NEW STYLES FOR THE EMPTY STATE ---
+  dialog: { borderRadius: 28 },
   emptyContainer: {
     flex: 1,
     justifyContent: "center",

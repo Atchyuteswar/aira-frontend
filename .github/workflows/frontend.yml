@@ -1,0 +1,84 @@
+name: Aira Frontend CI/CD
+
+on:
+  push:
+    branches: [ master ] # Trigger on pushes to the main branch
+  pull_request:
+    branches: [ master ] # Trigger on pull requests targeting main
+
+jobs:
+  # ---- Continuous Integration (CI) ----
+  ci:
+    name: Lint & Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20' # Use your Node.js version
+          cache: 'npm'
+          cache-dependency-path: aira-frontend/package-lock.json # Adjust path if needed
+
+      - name: Install dependencies
+        working-directory: ./aira-frontend # Adjust path if needed
+        run: npm install
+
+      # Add linting step if you have ESLint configured
+      # - name: Run ESLint
+      #   working-directory: ./aira-frontend
+      #   run: npx eslint .
+
+      - name: Run TypeScript Check
+        working-directory: ./aira-frontend # Adjust path if needed
+        run: npx tsc --noEmit
+
+      # Add testing step if you have tests configured
+      # - name: Run tests
+      #   working-directory: ./aira-frontend
+      #   run: npm test
+
+  # ---- Continuous Deployment (CD) ----
+  cd:
+    name: EAS Build & Submit (Android)
+    runs-on: ubuntu-latest
+    # Only run CD if CI passes and it's a push to the main branch
+    needs: ci
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: aira-frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ./aira-frontend
+        run: npm install
+
+      - name: Install EAS CLI
+        run: npm install -g eas-cli
+
+      - name: EAS Login
+        working-directory: ./aira-frontend
+        # Store your Expo token as a secret named EXPO_TOKEN in GitHub repository settings
+        run: eas login --token ${{ secrets.EXPO_TOKEN }}
+
+      - name: EAS Build
+        working-directory: ./aira-frontend
+        # Assumes you have a 'production' build profile in eas.json
+        run: eas build --platform android --profile production --non-interactive --no-wait
+
+      # Optional: Submit to Play Store after build completes (requires setup)
+      # You might need a separate workflow triggered by the EAS build webhook,
+      # or poll the build status before submitting.
+      # - name: EAS Submit (if build successful)
+      #   working-directory: ./aira-frontend
+      #   run: eas submit --platform android --latest --wait

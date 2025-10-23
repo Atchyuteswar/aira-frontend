@@ -1,13 +1,15 @@
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import {
   GiftedChat, IMessage, User, MessageTextProps, Bubble,
   InputToolbar, Send, Day, DayProps, BubbleProps, InputToolbarProps, SendProps, Composer, ComposerProps
 } from 'react-native-gifted-chat';
-import { Alert, StyleSheet, View, StyleProp, TextStyle, Platform } from 'react-native';
-import { useTheme, IconButton } from 'react-native-paper';
+import { Alert, StyleSheet, View, StyleProp, TextStyle, Platform, TouchableOpacity } from 'react-native';
+import { useTheme, IconButton, Text } from 'react-native-paper';
 import Markdown from 'react-native-markdown-display';
 import * as Animatable from 'react-native-animatable';
+import * as Haptics from 'expo-haptics';
+import apiClient from '../api/client'; // Make sure this is correctly imported
 
 const AIRA_USER: User = {
   _id: 2,
@@ -28,6 +30,23 @@ const ChatScreen = ({ route }: any) => {
   const ws = useRef<WebSocket | null>(null);
   const theme = useTheme();
 
+  // --- NEW STATE FOR MOOD TRACKING ---
+  const [moodSelectorVisible, setMoodSelectorVisible] = useState(false);
+  const [moodLogged, setMoodLogged] = useState(false);
+
+  // --- EFFECT TO SHOW MOOD SELECTOR ---
+  useEffect(() => {
+    // Show selector if convo is long enough, Aira spoke last, and mood isn't already logged
+    if (
+      messages.length >= 6 &&
+      messages[0]?.user._id === AIRA_USER._id &&
+      !moodLogged
+    ) {
+      setMoodSelectorVisible(true);
+    }
+  }, [messages, moodLogged]);
+
+
   const markdownStyle = StyleSheet.create({
     body: { fontSize: 16, fontFamily: 'Inter_400Regular' },
     strong: { fontFamily: 'Inter_700Bold' },
@@ -36,8 +55,8 @@ const ChatScreen = ({ route }: any) => {
 
   useFocusEffect(
     useCallback(() => {
-      // const WEBSOCKET_URL = `ws://192.168.0.8:8000/chat/ws/${conversationId}`;
       const WEBSOCKET_URL = `wss://aira-backend-ver1-0.onrender.com/chat/ws/${conversationId}`;
+      // const WEBSOCKET_URL = `ws://172.16.17.147:8000/chat/ws/${conversationId}`;
       ws.current = new WebSocket(WEBSOCKET_URL);
       ws.current.onopen = () => console.log(`WebSocket opened for ${conversationId}`);
       ws.current.onclose = () => console.log(`WebSocket closed for ${conversationId}`);
@@ -50,6 +69,9 @@ const ChatScreen = ({ route }: any) => {
           setMessages((previousMessages) => GiftedChat.append(previousMessages, [newMessage]));
         }
       };
+      // Reset mood logging state when entering the screen
+      setMoodLogged(false);
+      setMoodSelectorVisible(false);
       return () => ws.current?.close();
     }, [conversationId])
   );
@@ -58,6 +80,58 @@ const ChatScreen = ({ route }: any) => {
     setMessages((previousMessages) => GiftedChat.append(previousMessages, newMessages));
     ws.current?.send(newMessages[0].text);
   }, []);
+
+  // --- NEW MOOD HANDLING LOGIC ---
+  const handleMoodSelect = async (mood: string) => {
+    try {
+      await apiClient.post('/moods', {
+        mood,
+        sourceId: conversationId,
+        sourceType: 'conversation',
+      });
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setMoodLogged(true);
+      setMoodSelectorVisible(false); // Hide the selector on success
+    } catch (error) {
+      console.error('Failed to log mood', error);
+      Alert.alert('Error', 'Could not save your mood entry.');
+    }
+  };
+
+
+  // --- NEW MOOD SELECTOR COMPONENT ---
+  const MoodSelector = () => {
+    const moods = [
+      { name: 'happy', icon: 'emoticon-happy-outline' },
+      { name: 'calm', icon: 'emoticon-neutral-outline' },
+      { name: 'sad', icon: 'emoticon-sad-outline' },
+      { name: 'anxious', icon: 'emoticon-confused-outline' },
+      { name: 'angry', icon: 'emoticon-angry-outline' },
+    ];
+
+    return (
+      <Animatable.View
+        animation="fadeInUp"
+        duration={500}
+        style={[styles.moodContainer, { backgroundColor: theme.colors.surfaceVariant }]}
+      >
+        <Text variant="bodyMedium" style={[styles.moodTitle, { color: theme.colors.onSurfaceVariant }]}>
+          How are you feeling now?
+        </Text>
+        <View style={styles.moodIcons}>
+          {moods.map(({ name, icon }) => (
+            <IconButton
+              key={name}
+              icon={icon}
+              size={32}
+              iconColor={theme.colors.primary}
+              onPress={() => handleMoodSelect(name)}
+            />
+          ))}
+        </View>
+      </Animatable.View>
+    );
+  };
 
   const renderCustomMessageText = (props: MessageTextProps<IMessage>) => {
     const { currentMessage } = props;
@@ -75,23 +149,15 @@ const ChatScreen = ({ route }: any) => {
   };
 
   const renderBubble = (props: BubbleProps<IMessage>) => (
-  <Animatable.View animation="fadeInUp" duration={400} useNativeDriver={true}>
-    <Bubble {...props}
-      wrapperStyle={{
-        left: { backgroundColor: theme.colors.surface, borderRadius: theme.roundness * 1.5 },
-        right: { backgroundColor: theme.colors.primary, borderRadius: theme.roundness * 1.5 },
-      }}
-      textStyle={{
-        left: { color: theme.colors.onSurface },
-        right: { color: '#FFFFFF' },
-      }}
-      bottomContainerStyle={{
-        left: { justifyContent: 'flex-start' },
-        right: { justifyContent: 'flex-end' },
-      }}
-    />
-  </Animatable.View>
-);
+    <Animatable.View animation="fadeInUp" duration={400} useNativeDriver={true}>
+      <Bubble {...props}
+        wrapperStyle={{
+          left: { backgroundColor: theme.colors.surface, borderRadius: 20 },
+          right: { backgroundColor: theme.colors.primary, borderRadius: 20 },
+        }}
+      />
+    </Animatable.View>
+  );
 
   const renderInputToolbar = (props: InputToolbarProps<IMessage>) => (
     <InputToolbar {...props}
@@ -126,10 +192,7 @@ const ChatScreen = ({ route }: any) => {
           icon="microphone"
           size={28}
           iconColor={theme.colors.primary}
-          onPress={() => {
-            console.log('Mic button pressed');
-            // TODO: Add voice input logic here in the future
-          }}
+          onPress={() => console.log('Mic button pressed')}
         />
       </View>
     );
@@ -159,6 +222,8 @@ const ChatScreen = ({ route }: any) => {
         renderDay={renderDay}
         messagesContainerStyle={styles.messagesContainer}
         minInputToolbarHeight={55}
+        // --- NEW PROP TO RENDER THE MOOD SELECTOR ---
+        renderFooter={() => moodSelectorVisible ? <MoodSelector /> : null}
       />
     </View>
   );
@@ -199,6 +264,26 @@ const styles = StyleSheet.create({
         height: 44,
         justifyContent: 'center',
         alignItems: 'center',
+    },
+    // --- NEW STYLES FOR MOOD SELECTOR ---
+    moodContainer: {
+      padding: 16,
+      margin: 10,
+      borderRadius: 20,
+      elevation: 2,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.1,
+      shadowRadius: 2,
+    },
+    moodTitle: {
+      textAlign: 'center',
+      fontFamily: 'Inter_500Medium',
+      marginBottom: 8,
+    },
+    moodIcons: {
+      flexDirection: 'row',
+      justifyContent: 'space-around',
     },
 });
 
