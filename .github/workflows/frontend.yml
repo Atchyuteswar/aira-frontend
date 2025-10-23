@@ -44,7 +44,7 @@ jobs:
     runs-on: ubuntu-latest
     # Only run CD if CI passes and it's a push to the main branch
     needs: ci
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
 
     steps:
       - name: Checkout code
