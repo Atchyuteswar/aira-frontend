@@ -50,6 +50,7 @@ jobs:
     env:
       # Make Expo token available to all steps
       EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+      # Get version from tag (e.g., v0.4.0) - used for naming artifacts
       APP_VERSION: ${{ github.ref_name }}
 
     steps:
@@ -73,12 +74,21 @@ jobs:
       - name: EAS Build (Start Only)
         id: build # Give step an ID to reference its output
         run: |
-          # Use jq to parse JSON output and get the build URL
-          # Note: Expo might output multiple JSON objects, `jq -s` handles this
-          BUILD_URL=$(eas build --platform android --profile production --non-interactive --json | jq -r '.[0].buildUrl')
-          echo "Build URL: $BUILD_URL"
+          # Start the build (don't capture JSON here)
+          eas build --platform android --profile production --non-interactive --no-wait
+          echo "Build started. Fetching latest build details..."
+          # Wait a bit longer for EAS list to potentially update
+          sleep 10
+          # Fetch the latest build details JSON
+          LATEST_BUILD_JSON=$(eas build:list --platform android --limit 1 --json)
+          echo "--- Latest Build JSON Output ---"
+          echo "$LATEST_BUILD_JSON"
+          echo "--- End JSON Output ---"
+          # Try extracting the URL using a robust jq filter
+          BUILD_URL=$(echo "$LATEST_BUILD_JSON" | jq -r '.[0].buildUrl // empty')
+          echo "Extracted Build URL: $BUILD_URL"
           if [ -z "$BUILD_URL" ] || [ "$BUILD_URL" == "null" ]; then
-            echo "Error: Could not extract build URL from EAS build command output."
+            echo "Error: Could not extract build URL using eas build:list."
             exit 1
           fi
           # Save the URL for the next step
@@ -93,18 +103,33 @@ jobs:
       - name: Download Build Artifact (.aab)
         id: download # Give step an ID
         run: |
-          echo "Fetching details for build URL: ${{ steps.build.outputs.build_url }}"
+          echo "Fetching details for completed build URL: ${{ steps.build.outputs.build_url }}"
           # Get artifact URL from finished build matching the build URL
-          ARTIFACT_URL=$(eas build:list --platform android --status finished --limit 1 --json | jq -r --arg BUILD_URL "${{ steps.build.outputs.build_url }}" '.[] | select(.buildUrl == $BUILD_URL) | .artifacts.buildUrl')
+          # Use a loop with retries in case the artifact isn't ready immediately after build:run finishes
+          ARTIFACT_URL=""
+          for i in 1 2 3 4 5; do
+            echo "Attempt $i to get artifact URL..."
+            BUILD_DETAILS_JSON=$(eas build:list --platform android --status finished --limit 1 --json)
+            echo "--- Build List JSON (Attempt $i) ---"
+            echo "$BUILD_DETAILS_JSON"
+            echo "--- End JSON Output ---"
+            ARTIFACT_URL=$(echo "$BUILD_DETAILS_JSON" | jq -r --arg BUILD_URL "${{ steps.build.outputs.build_url }}" '.[] | select(.buildUrl == $BUILD_URL) | .artifacts.buildUrl // empty')
+            if [ -n "$ARTIFACT_URL" ] && [ "$ARTIFACT_URL" != "null" ]; then
+              echo "Found artifact URL."
+              break
+            fi
+            echo "Artifact URL not found yet, waiting 15 seconds..."
+            sleep 15
+          done
+
           if [ -z "$ARTIFACT_URL" ] || [ "$ARTIFACT_URL" == "null" ]; then
-            echo "Error: Could not find artifact URL for build ${{ steps.build.outputs.build_url }}"
-            echo "Recent builds:"
-            eas build:list --platform android --status finished --limit 5 --json # Print recent builds for debugging
+            echo "Error: Could not find artifact URL for build ${{ steps.build.outputs.build_url }} after multiple attempts."
             exit 1
           fi
+
           echo "Downloading artifact from: $ARTIFACT_URL"
           # Download the AAB file, using the version from the tag in the filename
-          curl -Lo aira-${{ env.APP_VERSION }}.aab "$ARTIFACT_URL"
+          curl -f -Lo aira-${{ env.APP_VERSION }}.aab "$ARTIFACT_URL" # Added -f to fail on server errors
           echo "Downloaded AAB."
           # Save the path for the next steps
           echo "artifact_path=aira-${{ env.APP_VERSION }}.aab" >> $GITHUB_OUTPUT
@@ -123,7 +148,7 @@ jobs:
           # Use a known recent version, check GitHub releases for the absolute latest
           VERSION="1.15.6"
           echo "Downloading bundletool version $VERSION..."
-          curl -Lo bundletool.jar "https://github.com/google/bundletool/releases/download/$VERSION/bundletool-all-$VERSION.jar"
+          curl -f -Lo bundletool.jar "https://github.com/google/bundletool/releases/download/$VERSION/bundletool-all-$VERSION.jar"
           echo "Downloaded bundletool.jar"
           # Save the path for the next step
           echo "jar_path=bundletool.jar" >> $GITHUB_OUTPUT
