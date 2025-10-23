@@ -79,8 +79,21 @@ jobs:
           echo "Build started. Fetching latest build details..."
           # Wait a bit longer for EAS list to potentially update
           sleep 10
+          # Explicitly check authentication status
+          echo "Checking EAS authentication..."
+          eas whoami
+          if [ $? -ne 0 ]; then
+            echo "Error: EAS authentication failed."
+            exit 1
+          fi
+          echo "EAS authentication successful."
           # Fetch the latest build details JSON
+          echo "Fetching latest build list..."
           LATEST_BUILD_JSON=$(eas build:list --platform android --limit 1 --json)
+          if [ $? -ne 0 ]; then
+            echo "Error: 'eas build:list' command failed."
+            exit 1
+          fi
           echo "--- Latest Build JSON Output ---"
           echo "$LATEST_BUILD_JSON"
           echo "--- End JSON Output ---"
@@ -88,7 +101,7 @@ jobs:
           BUILD_URL=$(echo "$LATEST_BUILD_JSON" | jq -r '.[0].buildUrl // empty')
           echo "Extracted Build URL: $BUILD_URL"
           if [ -z "$BUILD_URL" ] || [ "$BUILD_URL" == "null" ]; then
-            echo "Error: Could not extract build URL using eas build:list."
+            echo "Error: Could not extract build URL from eas build:list JSON."
             exit 1
           fi
           # Save the URL for the next step
