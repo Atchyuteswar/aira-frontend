@@ -20,9 +20,9 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22.15.0' # Correct Node.js version
+          node-version: '22.15.0' # Use your specific Node.js version
           cache: 'npm'
-          cache-dependency-path: package-lock.json # Correct path at root
+          cache-dependency-path: package-lock.json # Path at the root
 
       - name: Install dependencies
         run: npm install
@@ -60,7 +60,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22.15.0'
+          node-version: '22.15.0' # Consistent Node.js version
           cache: 'npm'
           cache-dependency-path: package-lock.json
 
@@ -75,8 +75,13 @@ jobs:
         id: build # Give step an ID to reference its output
         run: |
           # Use jq to parse JSON output and get the build URL
-          BUILD_URL=$(eas build --platform android --profile production --non-interactive --json | jq -r '.[] | .buildUrl')
+          # Note: Expo might output multiple JSON objects, `jq -s` handles this
+          BUILD_URL=$(eas build --platform android --profile production --non-interactive --json | jq -s -r '.[0] | .buildUrl')
           echo "Build URL: $BUILD_URL"
+          if [ -z "$BUILD_URL" ] || [ "$BUILD_URL" == "null" ]; then
+            echo "Error: Could not extract build URL from EAS build command output."
+            exit 1
+          fi
           # Save the URL for the next step
           echo "build_url=$BUILD_URL" >> $GITHUB_OUTPUT
 
@@ -94,18 +99,16 @@ jobs:
           ARTIFACT_URL=$(eas build:list --platform android --status finished --limit 1 --json | jq -r --arg BUILD_URL "${{ steps.build.outputs.build_url }}" '.[] | select(.buildUrl == $BUILD_URL) | .artifacts.buildUrl')
           if [ -z "$ARTIFACT_URL" ] || [ "$ARTIFACT_URL" == "null" ]; then
             echo "Error: Could not find artifact URL for build ${{ steps.build.outputs.build_url }}"
+            echo "Recent builds:"
             eas build:list --platform android --status finished --limit 5 --json # Print recent builds for debugging
             exit 1
           fi
           echo "Downloading artifact from: $ARTIFACT_URL"
-          # Download the AAB file
-          curl -o aira-${{ env.APP_VERSION }}.aab "$ARTIFACT_URL"
+          # Download the AAB file, using the version from the tag in the filename
+          curl -Lo aira-${{ env.APP_VERSION }}.aab "$ARTIFACT_URL"
           echo "Downloaded AAB."
           # Save the path for the next steps
           echo "artifact_path=aira-${{ env.APP_VERSION }}.aab" >> $GITHUB_OUTPUT
-        env:
-          # Pass build URL via env because GITHUB_OUTPUT might not be immediately available in complex jq queries
-          BUILD_URL_ENV: ${{ steps.build.outputs.build_url }}
 
       # --- Set up Java for bundletool ---
       - name: Set up Java
@@ -118,7 +121,7 @@ jobs:
       - name: Download bundletool
         id: bundletool
         run: |
-          # Use a known recent version, or check GitHub releases for the latest
+          # Use a known recent version, check GitHub releases for the absolute latest
           VERSION="1.15.6"
           echo "Downloading bundletool version $VERSION..."
           curl -Lo bundletool.jar "https://github.com/google/bundletool/releases/download/$VERSION/bundletool-all-$VERSION.jar"
@@ -135,7 +138,7 @@ jobs:
           echo "Extracting universal APK..."
           unzip aira-${{ env.APP_VERSION }}.apks -d apks/
           ls apks/ # List contents for debugging
-          # Save path and desired final name for the upload step
+          # Save path and desired final name (using version tag) for the upload step
           echo "apk_path=apks/universal.apk" >> $GITHUB_OUTPUT
           echo "apk_name=aira-${{ env.APP_VERSION }}-universal.apk" >> $GITHUB_OUTPUT
 
@@ -145,14 +148,14 @@ jobs:
         with:
           # GITHUB_TOKEN is automatically provided by Actions
           token: ${{ secrets.GITHUB_TOKEN }}
-          tag_name: ${{ github.ref_name }} # Use the tag that triggered the workflow
+          tag_name: ${{ github.ref_name }} # Use the tag that triggered the workflow (e.g., v0.4.0)
           name: Release ${{ github.ref_name }} # e.g., Release v0.4.0
           body: | # Optional: Add release notes here
             Automated release for version ${{ github.ref_name }}
 
             **Aira Android App**
-            Install this APK directly on your device.
+            Install this APK directly on your device (`universal.apk`).
           draft: false # Set to true to create a draft release instead
           prerelease: false
-          files: | # Define file(s) to upload
+          files: | # Define file(s) to upload: source path => destination name
             ${{ steps.conversion.outputs.apk_path }} => ${{ steps.conversion.outputs.apk_name }}
